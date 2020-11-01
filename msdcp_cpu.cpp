@@ -154,39 +154,6 @@ void tarjanSCC(vector<vector<int>>& G, int u, int dfs_num[],
     }
 }
 
-//void tarjanSCC(vector<vector<int>> G, int u, int dfs_num[], int dfs_low[], 
-//                bool visited[], stack<int>& s, int *numSCC, int SCCs[]) { 
-//
-//    static int time = 0;
-//    dfs_low[u] = dfs_num[u] = ++time;
-//    s.push(u);
-//    visited[u] = 1;
-//
-//    for(int j = 0; j < (int) G[u].size(); j++) {
-//        int v = G[u][j];
-//        if(dfs_num[v] == INF)
-//            tarjanSCC(G, v, dfs_num, dfs_low, visited, s, numSCC, SCCs);
-//        if(visited[v])
-//            dfs_low[u] = min(dfs_low[u], dfs_low[v]);
-//    }
-//
-//    int v = 0;
-//    if (dfs_low[u] == dfs_num[u]) {
-//        ++(*numSCC);
-//        while (s.top() != u) {
-//            v = s.top();
-//            SCCs[v] = *numSCC;
-//            visited[v] = false;
-//            s.pop();
-//        }
-//
-//        v = s.top();
-//        visited[v] = false;
-//        SCCs[v] = *numSCC;
-//        s.pop();
-//    }
-//}
-
 bool check_satisfiability(vector<vector<int>> G, int V) {
 
     stack<int> s;
