@@ -169,14 +169,19 @@ __global__ void construct_boolean_expression(
 }
 
 __global__ 
-void check_satisfiability(bool* d_G) {
+void check_satisfiability(bool* d_G, bool* satisfiable, int V, int N) {
     int k = blockDim.y * blockIdx.y + threadIdx.y;
     int i = blockDim.x * blockIdx.x + threadIdx.x;
 
-    for (int j = 0; j < V; ++i) {
-        G[i][j] = G[i][j] || (G[i][k] && G[k][j]);
+    if (k < V && i < V) {
+
+        for (int j = 0; j < V; ++j)
+            d_G[i*V+j] = d_G[i*V+j] || (d_G[i*V+k] && d_G[k*V+j]);
+        __syncthreads();
+
+        if (satisfiable[0])
+            satisfiable[0] = !(d_G[k*V+(k+N)] && d_G[(k+N)*V+k]);
     }
-    __syncthreads();
 }
 
 template <typename T>
@@ -207,21 +212,25 @@ T solve(thrust::device_vector<Edge<T>> edges) {
             Edge<T> e2 = edges[m];
             T d2 = e2.dissimilarity;
 
-            bool* d_G; 
+            bool* d_G, *satisfiable;
             cudaMallocManaged(&d_G, V*V*sizeof(bool));
+            cudaMallocManaged(&satisfiable, sizeof(bool));
+            satisfiable[0] = true;
 
             construct_boolean_expression<T>
                 <<<t_n2.dimBlocks, t_n2.dimGrids>>>(d_G, e_ptr, d1, d2, V, N, (int)edges.size());
             cudaDeviceSynchronize();
 
-            bool satisfiable = true;
-            if (satisfiable) {
+            check_satisfiability<<<t_v2.dimBlocks, t_v2.dimGrids>>>(d_G, satisfiable, V, N);
+            cudaDeviceSynchronize();
+
+            if (satisfiable[0])
                 r = m-1, ans = min(ans, d1+d2);
-            } else {
+            else 
                 l = m+1;
-            }
 
             cudaFree(d_G);
+            cudaFree(satisfiable);
         }
     }
 
@@ -244,7 +253,6 @@ int main() {
             Edge<int> e = {i, i, 0};
             edges.push_back(e);
         }
-        
         
         int ans = solve<int>(edges);
         printf("%d\n", ans);
