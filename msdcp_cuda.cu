@@ -180,7 +180,7 @@ void check_satisfiability(bool* d_G, bool* cycle, int V, int N, int k) {
 
         __syncthreads();
 
-        if (k == V-1)
+        if (i < N && k == V-1)
             cycle[i] = !(d_G[i*V+(i+N)] && d_G[(i+N)*V+i]);
     }
 }
@@ -199,6 +199,7 @@ T solve(thrust::device_vector<Edge<T>> edges) {
     struct Threads t_v2 = Threads(V, V);
     Edge<T>* e_ptr = thrust::raw_pointer_cast(&edges[0]);
 
+    printf("|E|= %d, |eB|=  %d\n", (int)edges.size(), (int)eB.size());
     for (int i = 0; i < (int)eB.size(); ++i) {
         int l = 0;
         int r = eB[i]-1;
@@ -213,7 +214,7 @@ T solve(thrust::device_vector<Edge<T>> edges) {
             
             bool* d_G, *cycle;
             cudaMallocManaged(&d_G, V*V*sizeof(bool));
-            cudaMallocManaged(&cycle, V*sizeof(bool));
+            cudaMallocManaged(&cycle, N*sizeof(bool));
 
             construct_boolean_expression<T><<<t_n2.dimBlocks, t_n2.dimGrids>>>(
                                         d_G, e_ptr, d1, d2, V, N, (int)edges.size());
@@ -225,8 +226,6 @@ T solve(thrust::device_vector<Edge<T>> edges) {
             }
 
             bool satisfy = thrust::reduce(cycle, cycle+N, true, thrust::bit_and<bool>());
-
-            vector<vector<int>> G(V, vector<int>(V, 0));
 
             if (satisfy)
                 r = m-1, ans = min(ans, d1+d2);
@@ -259,7 +258,14 @@ int main() {
             edges.push_back(e);
         }
         
+        clock_t begin = clock();
+
         int ans = solve<int>(edges);
+
+        clock_t end = clock();
+        double elapsed_secs = double(end - begin) / CLOCKS_PER_SEC;
+        printf("GPU time(secs) = %.10lf\n", elapsed_secs);
+
         printf("%d\n", ans);
     }
     
