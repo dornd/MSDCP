@@ -169,20 +169,77 @@ __global__ void construct_boolean_expression(
 }
 
 __global__ 
-void check_satisfiability(bool* d_G, bool* cycle, int V, int N, int k) {
-    int i = blockDim.y * blockIdx.y + threadIdx.y;
-    int j = blockDim.x * blockIdx.x + threadIdx.x;
+void initDiagonal(bool* d_G, int V) {
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (i < V)
+        d_G[i*V+i] = true;
+}
+
+__global__
+void mmul(bool* A, bool* B, int V) {
+    int i = blockDim.y * blockIdx.y + threadIdx.y; 
+    int j = blockDim.x * blockIdx.x + threadIdx.x; 
 
     if (i < V && j < V) {
+            
+        for (int k = 0; k < V; ++k)
+            B[i*V+j] = B[i*V+j] || (A[i*V+k] && A[k*V+j]);
+    }
+}
 
-        d_G[i*V+j] = d_G[i*V+j] || (d_G[i*V+k] && d_G[k*V+j]);
-        cycle[i] = true; // no cycle = 1, cycle = 0
+void square(bool *A, int V, Threads t) {
 
+    bool* B;
+
+    cudaMallocManaged(&B, V*V*sizeof(bool)); 
+
+    mmul<<<t.dimBlocks, t.dimGrids>>>(A, B, V);
+    cudaDeviceSynchronize();
+
+    cudaMemcpy(A, B, V*V*sizeof(bool), cudaMemcpyDeviceToDevice);
+    cudaFree(B);
+}
+
+__global__
+void check_cycle(bool* d_G, bool* cycle, int V, int N) {
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (i < N) {
+
+        cycle[i] = true; // no cycle = true, cycle = false
         __syncthreads();
 
-        if (i < N && k == V-1)
-            cycle[i] = !(d_G[i*V+(i+N)] && d_G[(i+N)*V+i]);
+        cycle[i] = !(d_G[i*V+(i+N)] && d_G[(i+N)*V+i]);
     }
+
+}
+
+bool check_satisfy(bool* d_G, int V) {
+
+    struct Threads tv = Threads(V, 1);
+    struct Threads tn = Threads(N, 1);
+    struct Threads t = Threads(V, V);
+
+    initDiagonal<<<tv.dimBlocks, tv.dimGrids>>>(d_G, V);
+    cudaDeviceSynchronize();
+
+    for(int k = 1; k <= V; k <<= 1)
+        square(d_G, V, t);
+    square(d_G, V, t);
+
+    bool* d_cycle;
+    bool* cycle = new bool[N];
+    cudaMalloc(&d_cycle, N*sizeof(bool));
+
+    check_cycle<<<tn.dimBlocks, tn.dimGrids>>>(d_G, d_cycle, V, N);
+    cudaDeviceSynchronize();
+
+    cudaMemcpy(cycle, d_cycle, N*sizeof(bool), cudaMemcpyDeviceToHost);
+
+    bool satisfy = thrust::reduce(cycle, cycle+N, true, thrust::bit_and<bool>());
+
+    return satisfy;
 }
 
 template <typename T>
@@ -199,7 +256,6 @@ T solve(thrust::device_vector<Edge<T>> edges) {
     struct Threads t_v2 = Threads(V, V);
     Edge<T>* e_ptr = thrust::raw_pointer_cast(&edges[0]);
 
-    printf("|E|= %d, |eB|=  %d\n", (int)edges.size(), (int)eB.size());
     for (int i = 0; i < (int)eB.size(); ++i) {
         int l = 0;
         int r = eB[i]-1;
@@ -220,12 +276,7 @@ T solve(thrust::device_vector<Edge<T>> edges) {
                                         d_G, e_ptr, d1, d2, V, N, (int)edges.size());
             cudaDeviceSynchronize();
 
-            for (int k = 0; k < V; ++k) {
-                check_satisfiability<<<t_v2.dimBlocks, t_v2.dimGrids>>>(d_G, cycle, V, N, k);
-                cudaDeviceSynchronize();
-            }
-
-            bool satisfy = thrust::reduce(cycle, cycle+N, true, thrust::bit_and<bool>());
+            bool satisfy = check_satisfy(d_G, V);
 
             if (satisfy)
                 r = m-1, ans = min(ans, d1+d2);
